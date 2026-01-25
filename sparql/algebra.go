@@ -27,6 +27,8 @@ type AlgebraExpr interface {
 // AlgebraVisitor is the visitor interface for traversing algebra expressions.
 type AlgebraVisitor interface {
 	VisitAlgebraBGP(*AlgebraBGP) interface{}
+	VisitAlgebraValues(*AlgebraValues) interface{}
+	VisitAlgebraEmpty(*AlgebraEmpty) interface{}
 	VisitAlgebraJoin(*AlgebraJoin) interface{}
 	VisitAlgebraFilter(*AlgebraFilter) interface{}
 	VisitAlgebraLeftJoin(*AlgebraLeftJoin) interface{}
@@ -79,6 +81,52 @@ func (b *AlgebraBGP) Variables() []string {
 func (b *AlgebraBGP) DefinedVars() []string {
 	return b.Variables()
 }
+
+// AlgebraValues represents inline data rows (VALUES clause).
+type AlgebraValues struct {
+	Vars []string
+	Rows []map[string]string
+}
+
+func (v *AlgebraValues) Accept(visitor AlgebraVisitor) interface{} {
+	return visitor.VisitAlgebraValues(v)
+}
+
+func (v *AlgebraValues) String() string {
+	return fmt.Sprintf("Values([%s], %d rows)", strings.Join(v.Vars, ", "), len(v.Rows))
+}
+
+func (v *AlgebraValues) Variables() []string {
+	vars := make(map[string]bool)
+	for _, row := range v.Rows {
+		for k := range row {
+			vars[k] = true
+		}
+	}
+	for _, vname := range v.Vars {
+		vars[vname] = true
+	}
+	return mapToSlice(vars)
+}
+
+func (v *AlgebraValues) DefinedVars() []string {
+	return append([]string{}, v.Vars...)
+}
+
+// AlgebraEmpty represents an expression with no solutions.
+type AlgebraEmpty struct{}
+
+func (e *AlgebraEmpty) Accept(visitor AlgebraVisitor) interface{} {
+	return visitor.VisitAlgebraEmpty(e)
+}
+
+func (e *AlgebraEmpty) String() string {
+	return "Empty()"
+}
+
+func (e *AlgebraEmpty) Variables() []string { return nil }
+
+func (e *AlgebraEmpty) DefinedVars() []string { return nil }
 
 // AlgebraJoin represents a join of two algebra expressions.
 // Join combines two expressions by finding solutions that satisfy both.

@@ -26,6 +26,14 @@ func (p *AlgebraPrinter) VisitAlgebraBGP(bgp *AlgebraBGP) interface{} {
 	return bgp.String()
 }
 
+func (p *AlgebraPrinter) VisitAlgebraValues(v *AlgebraValues) interface{} {
+	return v.String()
+}
+
+func (p *AlgebraPrinter) VisitAlgebraEmpty(e *AlgebraEmpty) interface{} {
+	return e.String()
+}
+
 func (p *AlgebraPrinter) VisitAlgebraJoin(j *AlgebraJoin) interface{} {
 	return j.String()
 }
@@ -90,6 +98,17 @@ func (vc *VariableCollector) VisitAlgebraBGP(bgp *AlgebraBGP) interface{} {
 	for _, v := range bgp.Variables() {
 		vc.variables[v] = true
 	}
+	return nil
+}
+
+func (vc *VariableCollector) VisitAlgebraValues(val *AlgebraValues) interface{} {
+	for _, v := range val.Variables() {
+		vc.variables[v] = true
+	}
+	return nil
+}
+
+func (vc *VariableCollector) VisitAlgebraEmpty(_ *AlgebraEmpty) interface{} {
 	return nil
 }
 
@@ -170,6 +189,14 @@ func (dc *ExpressionDepthCalculator) Depth(expr AlgebraExpr) int {
 }
 
 func (dc *ExpressionDepthCalculator) VisitAlgebraBGP(bgp *AlgebraBGP) interface{} {
+	return 1
+}
+
+func (dc *ExpressionDepthCalculator) VisitAlgebraValues(_ *AlgebraValues) interface{} {
+	return 1
+}
+
+func (dc *ExpressionDepthCalculator) VisitAlgebraEmpty(_ *AlgebraEmpty) interface{} {
 	return 1
 }
 
@@ -272,6 +299,18 @@ func (etf *ExpressionTreeFormatter) VisitAlgebraBGP(bgp *AlgebraBGP) interface{}
 		etf.output.WriteString(fmt.Sprintf("- %s %s %s\n", t.Subject, t.Predicate, t.Object))
 	}
 	etf.indent--
+	return nil
+}
+
+func (etf *ExpressionTreeFormatter) VisitAlgebraValues(v *AlgebraValues) interface{} {
+	etf.writeIndent()
+	etf.output.WriteString(fmt.Sprintf("VALUES (%d vars, %d rows)\n", len(v.Vars), len(v.Rows)))
+	return nil
+}
+
+func (etf *ExpressionTreeFormatter) VisitAlgebraEmpty(_ *AlgebraEmpty) interface{} {
+	etf.writeIndent()
+	etf.output.WriteString("EMPTY\n")
 	return nil
 }
 

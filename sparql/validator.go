@@ -75,6 +75,18 @@ func (v *AlgebraValidator) VisitAlgebraBGP(bgp *AlgebraBGP) interface{} {
 	return nil
 }
 
+func (v *AlgebraValidator) VisitAlgebraValues(val *AlgebraValues) interface{} {
+	for _, name := range val.Vars {
+		v.definedVars[name] = true
+		v.context.currentScope[name] = true
+	}
+	return nil
+}
+
+func (v *AlgebraValidator) VisitAlgebraEmpty(_ *AlgebraEmpty) interface{} {
+	return nil
+}
+
 func (v *AlgebraValidator) VisitAlgebraJoin(j *AlgebraJoin) interface{} {
 	// Both sides of join are executed, variables from both are available
 	j.Left.Accept(v)
@@ -343,6 +355,16 @@ type operatorCounter struct {
 }
 
 func (oc *operatorCounter) VisitAlgebraBGP(bgp *AlgebraBGP) interface{} {
+	oc.count++
+	return nil
+}
+
+func (oc *operatorCounter) VisitAlgebraValues(val *AlgebraValues) interface{} {
+	oc.count++
+	return nil
+}
+
+func (oc *operatorCounter) VisitAlgebraEmpty(_ *AlgebraEmpty) interface{} {
 	oc.count++
 	return nil
 }

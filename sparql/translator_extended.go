@@ -887,18 +887,31 @@ func applyAggregate(query *dql.GraphQuery, agg *Aggregate) error {
 	return nil
 }
 
-// applyHavingClause applies filtering on aggregate results
+// applyHavingClause applies filtering on aggregate results.
+// HAVING clauses filter the results of GROUP BY operations.
+// They operate on aggregate values, not individual triples.
+//
+// Example: HAVING (count(?x) > 5)
+// This becomes a filter on the aggregate count result after grouping.
 func applyHavingClause(query *dql.GraphQuery, having *HavingClause) error {
-	// HAVING filters are applied to groupby results
-	// Parse the expression and convert to DQL filter
+	if having == nil || having.Expression == "" {
+		return nil
+	}
 
-	// Create a filter for the HAVING expression
-	// Example: HAVING (count(?x) > 5) -> @filter(gt(count(uid), 5))
-	filter := &dql.FilterTree{
-		Func: &dql.Function{
-			Name: "having",
-			Attr: having.Expression,
-		},
+	// Parse the HAVING expression into a DQL filter
+	// For now, we'll attempt to translate simple aggregate comparisons
+	// Format: aggregate_function(arg) OPERATOR value
+	// Example: COUNT(?x) > 5, SUM(?val) < 100, AVG(?x) = 10
+
+	filter, err := parseHavingExpression(having.Expression)
+	if err != nil {
+		// If parsing fails, log it but don't fail the query
+		// This allows partial support for HAVING clauses
+		return fmt.Errorf("parsing HAVING expression %q: %w", having.Expression, err)
+	}
+
+	if filter == nil {
+		return nil
 	}
 
 	// Apply to the grouped query
@@ -913,6 +926,133 @@ func applyHavingClause(query *dql.GraphQuery, having *HavingClause) error {
 	}
 
 	return nil
+}
+
+// parseHavingExpression parses a HAVING clause expression into a DQL filter.
+// Supports simple comparisons: COUNT(?x) > 5, SUM(?val) < 100, etc.
+// Also supports logical combinations: (COUNT(?x) > 5) && (COUNT(?x) < 100)
+func parseHavingExpression(expr string) (*dql.FilterTree, error) {
+	// Normalize whitespace
+	expr = strings.TrimSpace(expr)
+
+	// Remove surrounding parentheses if present (but be careful with balanced parens)
+	for strings.HasPrefix(expr, "(") && strings.HasSuffix(expr, ")") {
+		inner := expr[1 : len(expr)-1]
+		if isBalancedParens(inner) {
+			expr = strings.TrimSpace(inner)
+		} else {
+			break
+		}
+	}
+
+	// Handle AND operator (has lower precedence than aggregate comparisons)
+	if idx := findOperatorOutsideParens(expr, "&&"); idx >= 0 {
+		parts := splitByOperator(expr, "&&")
+		var children []*dql.FilterTree
+		for _, p := range parts {
+			if ft, err := parseHavingExpression(p); err == nil && ft != nil {
+				children = append(children, ft)
+			} else if err != nil {
+				return nil, err
+			}
+		}
+		if len(children) == 0 {
+			return nil, fmt.Errorf("empty AND in HAVING expression")
+		}
+		if len(children) == 1 {
+			return children[0], nil
+		}
+		return &dql.FilterTree{Op: "AND", Child: children}, nil
+	}
+
+	// Handle OR operator
+	if idx := findOperatorOutsideParens(expr, "||"); idx >= 0 {
+		parts := splitByOperator(expr, "||")
+		var children []*dql.FilterTree
+		for _, p := range parts {
+			if ft, err := parseHavingExpression(p); err == nil && ft != nil {
+				children = append(children, ft)
+			} else if err != nil {
+				return nil, err
+			}
+		}
+		if len(children) == 0 {
+			return nil, fmt.Errorf("empty OR in HAVING expression")
+		}
+		if len(children) == 1 {
+			return children[0], nil
+		}
+		return &dql.FilterTree{Op: "OR", Child: children}, nil
+	}
+
+	// Pattern: AGGREGATE_FUNC(arg) OPERATOR value
+	// Examples: COUNT(?x) > 5, SUM(?val) <= 100, AVG(?x) = 10
+	// Case-insensitive matching for function names
+	aggregatePattern := regexp.MustCompile(`(?i)^\s*(COUNT|SUM|AVG|MIN|MAX)\s*\(\s*(?:DISTINCT\s+)?([^)]+)\s*\)\s*([<>=!]+)\s*(.+)$`)
+	m := aggregatePattern.FindStringSubmatch(expr)
+
+	if len(m) != 5 {
+		// Try to parse as a simple variable comparison as fallback
+		return nil, fmt.Errorf("unsupported HAVING expression format: %s", expr)
+	}
+
+	funcName := strings.ToLower(m[1])
+	variable := strings.TrimSpace(m[2])
+	operator := m[3]
+	value := strings.TrimSpace(m[4])
+
+	// Build the aggregate attribute name based on function
+	// In most cases, the aggregate is available via an alias set during applyAggregates
+	var aggregateAttr string
+	switch funcName {
+	case "count":
+		aggregateAttr = "count(uid)"
+	case "sum":
+		// Strip leading ?/$ if present
+		varName := strings.TrimPrefix(strings.TrimPrefix(variable, "?"), "$")
+		aggregateAttr = fmt.Sprintf("sum(%s)", varName)
+	case "avg":
+		varName := strings.TrimPrefix(strings.TrimPrefix(variable, "?"), "$")
+		aggregateAttr = fmt.Sprintf("avg(%s)", varName)
+	case "min":
+		varName := strings.TrimPrefix(strings.TrimPrefix(variable, "?"), "$")
+		aggregateAttr = fmt.Sprintf("min(%s)", varName)
+	case "max":
+		varName := strings.TrimPrefix(strings.TrimPrefix(variable, "?"), "$")
+		aggregateAttr = fmt.Sprintf("max(%s)", varName)
+	}
+
+	// Map SPARQL operators to DQL comparison functions
+	var dqlFunc string
+	switch operator {
+	case "=", "==":
+		dqlFunc = "eq"
+	case "!=", "<>":
+		dqlFunc = "ne"
+	case "<":
+		dqlFunc = "lt"
+	case ">":
+		dqlFunc = "gt"
+	case "<=":
+		dqlFunc = "le"
+	case ">=":
+		dqlFunc = "ge"
+	default:
+		return nil, fmt.Errorf("unsupported operator in HAVING: %s", operator)
+	}
+
+	// Create filter tree
+	filter := &dql.FilterTree{
+		Func: &dql.Function{
+			Name: dqlFunc,
+			Attr: aggregateAttr,
+			Args: []dql.Arg{
+				{Value: value},
+			},
+		},
+	}
+
+	return filter, nil
 }
 
 // hasPatterns returns true if the query contains at least one triple pattern.

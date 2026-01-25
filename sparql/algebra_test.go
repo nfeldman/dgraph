@@ -1119,6 +1119,14 @@ func (tv *testVisitor) VisitAlgebraBGP(bgp *AlgebraBGP) interface{} {
 	return "bgp"
 }
 
+func (tv *testVisitor) VisitAlgebraValues(val *AlgebraValues) interface{} {
+	return "values"
+}
+
+func (tv *testVisitor) VisitAlgebraEmpty(_ *AlgebraEmpty) interface{} {
+	return "empty"
+}
+
 func (tv *testVisitor) VisitAlgebraJoin(j *AlgebraJoin) interface{} {
 	return "join"
 }
