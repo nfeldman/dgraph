@@ -29,11 +29,30 @@ func TranslateToGraphQueries(ctx context.Context, sq SPARQLQuery, opts Translate
 
 	switch sq.Type() {
 	case "SELECT":
-		// translateSelect is implemented in translator_impl.go (first-pass / fallback)
+		// Try extended translator first (with OPTIONAL, UNION, aggregates, BIND, HAVING)
+		// If the query has extended features, it will be handled here
+		if hasExtendedFeatures(sq) {
+			return TranslateSelectExtended(ctx, sq, opts)
+		}
+		// Fall back to basic translator for simple queries
 		return translateSelect(ctx, sq, opts)
 	case "ASK":
 		return translateAsk(ctx, sq, opts)
 	default:
 		return nil, nil, fmt.Errorf("unsupported SPARQL query type %q", sq.Type())
 	}
+}
+
+// hasExtendedFeatures checks if the query uses extended SPARQL features
+func hasExtendedFeatures(sq SPARQLQuery) bool {
+	// Check if this is an extended query with new features
+	if extQuery, ok := sq.(*SPARQLQueryImpl); ok {
+		return len(extQuery.Patterns) > 0 ||
+			len(extQuery.Aggregates) > 0 ||
+			len(extQuery.Binds) > 0 ||
+			extQuery.Having != nil ||
+			extQuery.Distinct ||
+			len(extQuery.OrderBy) > 0
+	}
+	return false
 }

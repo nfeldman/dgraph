@@ -1,9 +1,18 @@
-# SPARQL Named Graph Implementation Summary
+# SPARQL Implementation Summary
+
+## Phases Overview
+
+### Phase 1: Named Graph Support (COMPLETED ✅)
+
+Core implementation of SPARQL named graph features with FROM/FROM NAMED/GRAPH.
+
+### Phase 2: Extended Features (COMPLETED ✅)
+
+Implementation of OPTIONAL, UNION, aggregates, BIND, and HAVING.
 
 ## What Was Implemented
 
-This implementation adds support for SPARQL named graph queries in Dgraph, following the design
-specified in `docs/sparql-syntax-and-named-graph-design.md`.
+### Phase 1: Named Graph Support
 
 ### Core Components
 
@@ -168,9 +177,99 @@ gqs, prefixes, _ := sparql.TranslateToGraphQueries(ctx, query, opts)
 // 4. gqs now contains DQL with @filter(eq(graph, "http://g1"))
 ```
 
+## Phase 2: Extended Features Implementation
+
+### New Components
+
+#### 1. Pattern Types ([sparql/ast.go](sparql/ast.go))
+
+- `OptionalPattern`: LEFT OUTER JOIN semantics
+- `UnionPattern`: Alternative pattern matching
+- `GraphPattern` interface: Union type for all pattern types
+
+#### 2. Aggregate Functions ([sparql/ast.go](sparql/ast.go))
+
+- `Aggregate` struct: COUNT, SUM, MIN, MAX, AVG with DISTINCT support
+- Maps to DQL `@groupby` directive
+
+#### 3. Variable Binding ([sparql/ast.go](sparql/ast.go))
+
+- `BindExpression` struct: BIND (...) AS ... expressions
+- Supports arithmetic and string operations
+
+#### 4. HAVING Clause ([sparql/ast.go](sparql/ast.go))
+
+- `HavingClause` struct: Filter on aggregate results
+- Executes after GROUP BY
+
+#### 5. Extended Translator ([sparql/translator_extended.go](sparql/translator_extended.go))
+
+- `TranslateSelectExtended()`: Full extended query support
+- `translateGraphPattern()`: Handles all pattern types
+- `applyAggregates()`: Maps aggregates to DQL groupby
+- `applyBindExpression()`: Variable binding support
+- `applyHavingClause()`: Post-aggregate filtering
+
+#### 6. Extended Query Structure ([sparql/ast.go](sparql/ast.go))
+
+- `SPARQLQueryImpl` now includes:
+  - `Patterns`: GraphPattern list
+  - `Aggregates`: Aggregate functions
+  - `Binds`: BIND expressions
+  - `Having`: HAVING clause
+  - `Distinct`: DISTINCT modifier
+  - `OrderBy`: ORDER BY variables
+
+### Test Coverage (Phase 2)
+
+- **TestOptionalPattern**: OPTIONAL pattern translation
+- **TestUnionPattern**: UNION alternative patterns
+- **TestAggregates**: COUNT, SUM, MIN, MAX, AVG functions
+- **TestBindExpression**: Variable binding expressions
+- **TestHavingClause**: Post-aggregate filtering
+- **TestTranslateSelectExtended**: Full extended queries
+- **TestExtractBGPFromPattern**: Pattern extraction utility
+- **TestIsOptionalPattern** / **TestIsUnionPattern**: Pattern type checking
+
+**Total new tests: 31 functions, 40+ test cases**
+
+### Combined Features Example
+
+```sparql
+SELECT DISTINCT ?s (COUNT(?item) AS ?count)
+FROM <http://example.org/graph1>
+WHERE {
+  ?s <type> <Person> .
+  OPTIONAL { ?s <name> ?name }
+  { ?s <age> ?age }
+  UNION
+  { ?s <premium> true }
+  ?s <hasItem> ?item .
+  BIND (?age + 1 AS ?nextAge)
+}
+GROUP BY ?s
+HAVING (COUNT(?item) > 5)
+ORDER BY DESC(?count)
+LIMIT 10
+```
+
+Features demonstrated:
+
+- ✅ FROM clause (named graphs)
+- ✅ OPTIONAL patterns
+- ✅ UNION alternatives
+- ✅ BIND expressions
+- ✅ GROUP BY with aggregates
+- ✅ HAVING clause
+- ✅ DISTINCT modifier
+- ✅ ORDER BY sorting
+- ✅ LIMIT/OFFSET pagination
+
 ## Architecture Alignment
 
-This implementation follows the design document:
+This implementation follows the design documents:
+
+### Phase 1: Named Graph Support
 
 - ✅ Graph predicate emulation
 - ✅ FROM/FROM NAMED dataset specification

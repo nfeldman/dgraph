@@ -19,34 +19,93 @@ type BGP struct {
 	Triples []*Triple
 }
 
+// GraphPattern is a union type for different SPARQL pattern types.
+type GraphPattern interface {
+	isGraphPattern()
+}
+
+func (b *BGP) isGraphPattern()             {}
+func (o *OptionalPattern) isGraphPattern() {}
+func (u *UnionPattern) isGraphPattern()    {}
+
+// OptionalPattern represents OPTIONAL { ... } pattern blocks
+type OptionalPattern struct {
+	Patterns []GraphPattern // Patterns to match optionally
+	Required bool           // False for OPTIONAL, true for non-optional
+}
+
+// UnionPattern represents UNION { ... } { ... } alternatives
+type UnionPattern struct {
+	Alternatives [][]GraphPattern // Each alternative is a list of patterns
+}
+
+// Aggregate represents an aggregate function like COUNT, SUM, etc.
+type Aggregate struct {
+	Function string // "count", "sum", "min", "max", "avg"
+	Variable string // Variable to aggregate
+	Alias    string // Output alias
+	Distinct bool   // DISTINCT modifier
+}
+
+// BindExpression represents BIND (?expr AS ?var) binding
+type BindExpression struct {
+	Expression string // Math or string expression
+	Variable   string // Output variable
+}
+
+// HavingClause represents HAVING filter on aggregates
+type HavingClause struct {
+	Expression string // Boolean expression for filtering
+}
+
 // sparqlQueryImpl is a minimal implementation of SPARQLQuery used by the
 // plain parser and translator.
 type sparqlQueryImpl struct {
-	qtype     string
-	prefixes  map[string]string
-	projs     []string
-	bgps      []*BGP
-	limit     int
-	offset    int
-	from      []string // active dataset IRIs (FROM)
-	fromNamed []string // available named graphs (FROM NAMED)
+	qtype      string
+	prefixes   map[string]string
+	projs      []string
+	patterns   []GraphPattern    // Extended to support all pattern types
+	bgps       []*BGP            // Deprecated: use patterns instead
+	aggregates []*Aggregate      // Aggregate functions
+	binds      []*BindExpression // BIND expressions
+	having     *HavingClause     // HAVING clause
+	limit      int
+	offset     int
+	orderBy    []string // ORDER BY variables
+	distinct   bool     // DISTINCT modifier
+	from       []string // active dataset IRIs (FROM)
+	fromNamed  []string // available named graphs (FROM NAMED)
 }
 
 // SPARQLQueryImpl is an exported version for testing and examples
 type SPARQLQueryImpl struct {
-	Qtype     string
-	Prefixes  map[string]string
-	Projs     []string
-	Bgps      []*BGP
-	Limit     int
-	Offset    int
-	From      []string // active dataset IRIs (FROM)
-	FromNamed []string // available named graphs (FROM NAMED)
+	Qtype      string
+	Prefixes   map[string]string
+	Projs      []string
+	Patterns   []GraphPattern    // Extended to support all pattern types
+	Bgps       []*BGP            // Deprecated: use patterns instead
+	Aggregates []*Aggregate      // Aggregate functions
+	Binds      []*BindExpression // BIND expressions
+	Having     *HavingClause     // HAVING clause
+	Limit      int
+	Offset     int
+	OrderBy    []string // ORDER BY variables
+	Distinct   bool     // DISTINCT modifier
+	From       []string // active dataset IRIs (FROM)
+	FromNamed  []string // available named graphs (FROM NAMED)
 }
 
 func (s *sparqlQueryImpl) Type() string                   { return s.qtype }
 func (s *sparqlQueryImpl) GetPrefixes() map[string]string { return s.prefixes }
 func (s *sparqlQueryImpl) RootGraphPatterns() []interface{} {
+	// Return patterns if available, otherwise fall back to bgps for backwards compatibility
+	if len(s.patterns) > 0 {
+		out := make([]interface{}, 0, len(s.patterns))
+		for _, p := range s.patterns {
+			out = append(out, p)
+		}
+		return out
+	}
 	out := make([]interface{}, 0, len(s.bgps))
 	for _, b := range s.bgps {
 		out = append(out, b)
@@ -61,6 +120,14 @@ func (s *sparqlQueryImpl) FROMNamed() []string      { return s.fromNamed }
 func (s *SPARQLQueryImpl) Type() string                   { return s.Qtype }
 func (s *SPARQLQueryImpl) GetPrefixes() map[string]string { return s.Prefixes }
 func (s *SPARQLQueryImpl) RootGraphPatterns() []interface{} {
+	// Return patterns if available, otherwise fall back to bgps for backwards compatibility
+	if len(s.Patterns) > 0 {
+		out := make([]interface{}, 0, len(s.Patterns))
+		for _, p := range s.Patterns {
+			out = append(out, p)
+		}
+		return out
+	}
 	out := make([]interface{}, 0, len(s.Bgps))
 	for _, b := range s.Bgps {
 		out = append(out, b)
