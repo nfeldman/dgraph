@@ -24,5 +24,9 @@ type SPARQLQuery interface {
 	RootGraphPatterns() []interface{}
 	// ProjectionVars returns the projection variable names for SELECT queries.
 	ProjectionVars() []string
+	// FROM returns the list of graph IRIs that form the default graph.
+	FROM() []string
+	// FROMNamed returns the list of named graph IRIs available for GRAPH patterns.
+	FROMNamed() []string
 	// Accessor stubs for Limit/Offset/OrderBy etc can be added as needed.
 }
