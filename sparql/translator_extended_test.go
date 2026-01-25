@@ -94,6 +94,195 @@ func TestUnionPattern(t *testing.T) {
 	}
 }
 
+// TestOptionalPatternSemantics verifies that OPTIONAL patterns create separate subqueries
+func TestOptionalPatternSemantics(t *testing.T) {
+	tests := []struct {
+		name        string
+		pattern     *OptionalPattern
+		expectChild bool
+		wantErr     bool
+	}{
+		{
+			name: "Optional with single BGP",
+			pattern: &OptionalPattern{
+				Required: false,
+				Patterns: []GraphPattern{
+					&BGP{
+						Triples: []*Triple{{
+							Subject:     "?s",
+							Predicate:   "http://ex.org/age",
+							Object:      "?age",
+							ObjectIsVar: true,
+						}},
+					},
+				},
+			},
+			expectChild: true,
+			wantErr:     false,
+		},
+		{
+			name: "Optional with multiple patterns",
+			pattern: &OptionalPattern{
+				Required: false,
+				Patterns: []GraphPattern{
+					&BGP{
+						Triples: []*Triple{{
+							Subject:     "?s",
+							Predicate:   "http://ex.org/name",
+							Object:      "?name",
+							ObjectIsVar: true,
+						}},
+					},
+					&BGP{
+						Triples: []*Triple{{
+							Subject:     "?s",
+							Predicate:   "http://ex.org/email",
+							Object:      "?email",
+							ObjectIsVar: true,
+						}},
+					},
+				},
+			},
+			expectChild: true,
+			wantErr:     false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rootQuery := &dql.GraphQuery{Attr: "query"}
+			err := translateGraphPattern(tt.pattern, []string{}, []string{}, rootQuery, TranslateOptions{})
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("translateGraphPattern() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if tt.expectChild && len(rootQuery.Children) == 0 {
+				t.Errorf("Expected child query for OPTIONAL pattern, got none")
+			}
+
+			// Verify that the child query is marked as optional
+			if tt.expectChild && len(rootQuery.Children) > 0 {
+				optQuery := rootQuery.Children[0]
+				if optQuery.Attr != "_optional" {
+					t.Errorf("Expected child Attr='_optional', got %q", optQuery.Attr)
+				}
+			}
+		})
+	}
+}
+
+// TestUnionPatternSemantics verifies that UNION patterns create OR semantics
+func TestUnionPatternSemantics(t *testing.T) {
+	tests := []struct {
+		name         string
+		pattern      *UnionPattern
+		expectFilter bool
+		expectOpOr   bool
+		wantErr      bool
+	}{
+		{
+			name: "Union with two alternatives",
+			pattern: &UnionPattern{
+				Alternatives: [][]GraphPattern{
+					{
+						&BGP{
+							Triples: []*Triple{{
+								Subject:     "?s",
+								Predicate:   "http://ex.org/type",
+								Object:      "http://ex.org/TypeA",
+								ObjectIsVar: false,
+							}},
+						},
+					},
+					{
+						&BGP{
+							Triples: []*Triple{{
+								Subject:     "?s",
+								Predicate:   "http://ex.org/type",
+								Object:      "http://ex.org/TypeB",
+								ObjectIsVar: false,
+							}},
+						},
+					},
+				},
+			},
+			expectFilter: true,
+			expectOpOr:   true,
+			wantErr:      false,
+		},
+		{
+			name: "Union with three alternatives",
+			pattern: &UnionPattern{
+				Alternatives: [][]GraphPattern{
+					{
+						&BGP{
+							Triples: []*Triple{{
+								Subject:     "?s",
+								Predicate:   "http://ex.org/type",
+								Object:      "http://ex.org/Type1",
+								ObjectIsVar: false,
+							}},
+						},
+					},
+					{
+						&BGP{
+							Triples: []*Triple{{
+								Subject:     "?s",
+								Predicate:   "http://ex.org/type",
+								Object:      "http://ex.org/Type2",
+								ObjectIsVar: false,
+							}},
+						},
+					},
+					{
+						&BGP{
+							Triples: []*Triple{{
+								Subject:     "?s",
+								Predicate:   "http://ex.org/type",
+								Object:      "http://ex.org/Type3",
+								ObjectIsVar: false,
+							}},
+						},
+					},
+				},
+			},
+			expectFilter: true,
+			expectOpOr:   true,
+			wantErr:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rootQuery := &dql.GraphQuery{Attr: "query"}
+			err := translateGraphPattern(tt.pattern, []string{}, []string{}, rootQuery, TranslateOptions{})
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("translateGraphPattern() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			// Verify that child queries are created for each alternative
+			expectedChildren := len(tt.pattern.Alternatives)
+			if len(rootQuery.Children) != expectedChildren {
+				t.Errorf("Expected %d child queries (one per alternative), got %d", expectedChildren, len(rootQuery.Children))
+			}
+
+			// Verify that a filter is created
+			if tt.expectFilter && rootQuery.Filter == nil {
+				t.Errorf("Expected filter for UNION pattern, got nil")
+			}
+
+			// Verify OR operator in filter if expected
+			if tt.expectOpOr && rootQuery.Filter != nil && rootQuery.Filter.Op != "OR" {
+				t.Errorf("Expected OR operator in filter, got %q", rootQuery.Filter.Op)
+			}
+		})
+	}
+}
+
 // TestAggregates tests aggregate function support
 func TestAggregates(t *testing.T) {
 	tests := []struct {

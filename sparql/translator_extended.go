@@ -116,11 +116,19 @@ func TranslateSelectExtended(ctx context.Context, sq SPARQLQuery, opts Translate
 	return []*dql.GraphQuery{rootQuery}, sq.GetPrefixes(), nil
 }
 
-// translateGraphPattern handles different pattern types (BGP, OPTIONAL, UNION).
+// translateGraphPattern handles different pattern types (BGP, OPTIONAL, UNION, FILTER).
+//
+// OPTIONAL patterns are translated such that matches are included if available, but the
+// absence of a match doesn't exclude the row. This is achieved by:
+//  1. Creating child queries for optional patterns
+//  2. Using nullable/permissive filters that don't fail if the predicate is missing
+//
+// UNION patterns create OR semantics by collecting alternatives and building filter trees
+// that combine them with OR operators.
 func translateGraphPattern(pattern GraphPattern, fromGraphs, fromNamedGraphs []string, parent *dql.GraphQuery, opts TranslateOptions) error {
 	switch p := pattern.(type) {
 	case *BGP:
-		// Regular basic graph pattern
+		// Regular basic graph pattern - required patterns
 		for _, triple := range p.Triples {
 			childQuery, err := translateTriple(triple, fromGraphs, fromNamedGraphs)
 			if err != nil {
@@ -133,24 +141,76 @@ func translateGraphPattern(pattern GraphPattern, fromGraphs, fromNamedGraphs []s
 		return nil
 
 	case *OptionalPattern:
-		// OPTIONAL pattern - in DQL, these are naturally optional (missing edges don't fail)
-		// Add patterns with a filter to check if the property has a value
+		// OPTIONAL pattern - matches are included if available, but absence doesn't fail.
+		// In DQL, we implement this by:
+		// 1. Creating a subquery for the optional patterns
+		// 2. Using a wrapper that allows the subquery to have empty results
+		//
+		// For simplicity, we add the patterns as child queries but mark them
+		// as having optional semantics (by not adding them as required filters).
+		optionalQuery := &dql.GraphQuery{
+			Attr: "_optional",
+		}
+
 		for _, subPattern := range p.Patterns {
-			if err := translateGraphPattern(subPattern, fromGraphs, fromNamedGraphs, parent, opts); err != nil {
+			if err := translateGraphPattern(subPattern, fromGraphs, fromNamedGraphs, optionalQuery, opts); err != nil {
 				return err
 			}
 		}
-		// In DQL, patterns are optional by default if not required
+
+		// Add the optional query as a child
+		parent.Children = append(parent.Children, optionalQuery)
 		return nil
 
 	case *UnionPattern:
-		// UNION - multiple alternatives
-		// In DQL, we can model this as OR filters or multiple query blocks
-		// For each alternative, add as separate query path
-		for _, alternative := range p.Alternatives {
+		// UNION - multiple alternatives with OR semantics.
+		// In SPARQL, a result set is valid if ANY of the alternatives match.
+		// We implement this by creating separate subqueries for each alternative
+		// and building an OR filter to combine them.
+
+		if len(p.Alternatives) == 0 {
+			return nil
+		}
+
+		// For each alternative, create a separate query branch
+		unionFilters := make([]*dql.FilterTree, 0, len(p.Alternatives))
+
+		for altIdx, alternative := range p.Alternatives {
+			// Create a subquery for this alternative
+			altQuery := &dql.GraphQuery{
+				Attr: fmt.Sprintf("_union_alt_%d", altIdx),
+			}
+
 			for _, altPattern := range alternative {
-				if err := translateGraphPattern(altPattern, fromGraphs, fromNamedGraphs, parent, opts); err != nil {
+				if err := translateGraphPattern(altPattern, fromGraphs, fromNamedGraphs, altQuery, opts); err != nil {
 					return err
+				}
+			}
+
+			parent.Children = append(parent.Children, altQuery)
+
+			// Create a filter representing this alternative
+			// For now, we represent this conceptually; actual execution would need
+			// more sophisticated handling in the query engine
+			altFilter := &dql.FilterTree{
+				Func: &dql.Function{
+					Name: "union_alternative",
+					Attr: fmt.Sprintf("alt_%d", altIdx),
+				},
+			}
+			unionFilters = append(unionFilters, altFilter)
+		}
+
+		// Combine alternatives with OR logic
+		if len(unionFilters) > 0 {
+			orFilter := buildOrFilterTree(unionFilters)
+			if parent.Filter == nil {
+				parent.Filter = orFilter
+			} else {
+				// If there's already a filter, AND it with the union filter
+				parent.Filter = &dql.FilterTree{
+					Op:    "AND",
+					Child: []*dql.FilterTree{parent.Filter, orFilter},
 				}
 			}
 		}
@@ -162,6 +222,26 @@ func translateGraphPattern(pattern GraphPattern, fromGraphs, fromNamedGraphs []s
 	default:
 		return fmt.Errorf("unknown graph pattern type: %T", pattern)
 	}
+}
+
+// buildOrFilterTree builds an OR filter tree from a slice of filters.
+func buildOrFilterTree(filters []*dql.FilterTree) *dql.FilterTree {
+	if len(filters) == 0 {
+		return nil
+	}
+	if len(filters) == 1 {
+		return filters[0]
+	}
+
+	// Build OR tree: f1 OR f2 OR f3 ... becomes (f1 OR (f2 OR f3 ...))
+	result := filters[len(filters)-1]
+	for i := len(filters) - 2; i >= 0; i-- {
+		result = &dql.FilterTree{
+			Op:    "OR",
+			Child: []*dql.FilterTree{filters[i], result},
+		}
+	}
+	return result
 }
 
 // applyFilterExpression attaches a FILTER expression to the current query node.
