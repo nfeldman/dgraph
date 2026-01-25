@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 
 	dql "github.com/dgraph-io/dgraph/v25/dql"
 	"github.com/dgraph-io/dgraph/v25/protos/pb"
+	"github.com/dgraph-io/dgraph/v25/types"
 )
 
 // TranslateSelectExtended handles SELECT queries with support for OPTIONAL, UNION, aggregates, BIND, HAVING.
@@ -289,20 +291,390 @@ func buildFilterTreeFromExpr(expr string) (*dql.FilterTree, error) {
 	return nil, fmt.Errorf("unsupported FILTER expression: %s", trimmed)
 }
 
-// applyBindExpression applies variable binding expressions (BIND ... AS ...)
+// applyBindExpression applies variable binding expressions (BIND ... AS ...).
+// SPARQL BIND creates computed variables from expressions.
+//
+// Supported expression types:
+//   - Arithmetic: ?x + ?y, ?x - ?y, ?x * ?y, ?x / ?y, ?x % ?y
+//   - Functions: CONCAT(?a, ?b), SUBSTR(?str, ?pos, ?len), etc.
+//   - Constants: numeric and string literals
+//
+// SPARQL expressions are converted to DQL MathTree for evaluation.
+// Results are stored with variable names for later use in projections.
 func applyBindExpression(query *dql.GraphQuery, bind *BindExpression) error {
-	// BIND expressions create new variables from expressions
-	// Map to DQL's variable binding system
-	// Example: BIND (?x + ?y AS ?sum) -> creates variable with math expression
-
-	// For now, store as a special function node
-	// Full implementation would need to parse and evaluate the expression
-	if query.Args == nil {
-		query.Args = make(map[string]string)
+	if bind == nil || bind.Expression == "" {
+		return nil
 	}
-	query.Args["bind_"+bind.Variable] = bind.Expression
 
+	// Parse the expression into a MathTree for DQL
+	mathTree, err := parseBindExpression(bind.Expression)
+	if err != nil {
+		return fmt.Errorf("parsing BIND expression %q: %w", bind.Expression, err)
+	}
+
+	// Create a child query to compute and bind the variable
+	childQuery := &dql.GraphQuery{
+		Attr:    "val",
+		Var:     bind.Variable,
+		MathExp: mathTree,
+	}
+
+	query.Children = append(query.Children, childQuery)
 	return nil
+}
+
+// parseBindExpression parses a BIND expression string into a DQL MathTree.
+// Handles arithmetic operators (+, -, *, /, %), function calls, and variables.
+func parseBindExpression(expr string) (*dql.MathTree, error) {
+	expr = strings.TrimSpace(expr)
+
+	// Check for function calls like CONCAT, SUBSTR, etc.
+	if idx := strings.Index(expr, "("); idx > 0 {
+		funcName := strings.TrimSpace(expr[:idx])
+		funcNameLower := strings.ToLower(funcName)
+
+		// Handle known functions
+		switch funcNameLower {
+		case "concat":
+			return parseConcat(expr)
+		case "substr":
+			return parseSubstr(expr)
+		case "strlen":
+			return parseStrlen(expr)
+		case "sqrt", "abs", "floor", "ceil", "exp", "ln":
+			return parseMathFunction(funcNameLower, expr)
+		}
+	}
+
+	// Handle arithmetic expressions (simplified parser for now)
+	return parseArithmeticExpression(expr)
+}
+
+// parseArithmeticExpression parses arithmetic expressions with +, -, *, /, %.
+// Handles operator precedence: * / % before + -
+func parseArithmeticExpression(expr string) (*dql.MathTree, error) {
+	expr = strings.TrimSpace(expr)
+
+	// Remove outer parentheses if they're balanced and cover the whole expression
+	for strings.HasPrefix(expr, "(") && strings.HasSuffix(expr, ")") {
+		// Check if the outer parentheses are balanced
+		inner := expr[1 : len(expr)-1]
+		if isBalancedParens(inner) {
+			expr = strings.TrimSpace(inner)
+		} else {
+			break
+		}
+	}
+
+	// Simple recursive descent parser for arithmetic
+	// Split on lowest precedence operators first (+, -)
+	for _, op := range []string{"+", "-"} {
+		for i := len(expr) - 1; i >= 0; i-- {
+			if expr[i:i+1] == op {
+				// Make sure it's not a unary operator
+				if i > 0 && !isOperator(expr[i-1]) {
+					left := strings.TrimSpace(expr[:i])
+					right := strings.TrimSpace(expr[i+1:])
+
+					leftTree, err := parseArithmeticExpression(left)
+					if err != nil {
+						return nil, err
+					}
+					rightTree, err := parseArithmeticExpression(right)
+					if err != nil {
+						return nil, err
+					}
+
+					return &dql.MathTree{
+						Fn:    op,
+						Child: []*dql.MathTree{leftTree, rightTree},
+					}, nil
+				}
+			}
+		}
+	}
+
+	// Try higher precedence operators (*, /, %)
+	for _, op := range []string{"*", "/", "%"} {
+		for i := len(expr) - 1; i >= 0; i-- {
+			if expr[i:i+1] == op {
+				if i > 0 && !isOperator(expr[i-1]) {
+					left := strings.TrimSpace(expr[:i])
+					right := strings.TrimSpace(expr[i+1:])
+
+					leftTree, err := parseArithmeticExpression(left)
+					if err != nil {
+						return nil, err
+					}
+					rightTree, err := parseArithmeticExpression(right)
+					if err != nil {
+						return nil, err
+					}
+
+					return &dql.MathTree{
+						Fn:    op,
+						Child: []*dql.MathTree{leftTree, rightTree},
+					}, nil
+				}
+			}
+		}
+	}
+
+	// If no operators, must be a variable or constant
+	return parseOperand(expr)
+}
+
+// parseOperand parses a single operand (variable or constant).
+func parseOperand(expr string) (*dql.MathTree, error) {
+	expr = strings.TrimSpace(expr)
+
+	// Check if it's a variable (starts with ?)
+	if strings.HasPrefix(expr, "?") {
+		return &dql.MathTree{
+			Var: expr[1:], // Store without the ?
+		}, nil
+	}
+
+	// Try to parse as a numeric constant
+	if val, err := strconv.ParseFloat(expr, 64); err == nil {
+		return &dql.MathTree{
+			Const: types.Val{
+				Tid:   types.FloatID,
+				Value: val,
+			},
+		}, nil
+	}
+
+	// Try to parse as an integer constant
+	if val, err := strconv.ParseInt(expr, 10, 64); err == nil {
+		return &dql.MathTree{
+			Const: types.Val{
+				Tid:   types.IntID,
+				Value: val,
+			},
+		}, nil
+	}
+
+	return nil, fmt.Errorf("cannot parse operand: %q", expr)
+}
+
+// parseConcat parses CONCAT(arg1, arg2, ...) function.
+func parseConcat(expr string) (*dql.MathTree, error) {
+	// Extract arguments from CONCAT(...)
+	args, err := extractFunctionArgs(expr)
+	if err != nil {
+		return nil, err
+	}
+
+	// CONCAT builds a tree by concatenating arguments left-to-right
+	// For now, return a placeholder indicating string concatenation
+	// In a full implementation, this would need special handling in the query engine
+	if len(args) == 0 {
+		return nil, fmt.Errorf("CONCAT requires at least one argument")
+	}
+
+	// Build a tree representing concatenation
+	// Use a special function name to indicate string concatenation
+	tree := &dql.MathTree{
+		Fn: "concat",
+	}
+
+	for _, arg := range args {
+		argTree, err := parseOperand(arg)
+		if err != nil {
+			// Try parsing as a nested expression
+			argTree, err = parseBindExpression(arg)
+			if err != nil {
+				return nil, err
+			}
+		}
+		tree.Child = append(tree.Child, argTree)
+	}
+
+	return tree, nil
+}
+
+// parseSubstr parses SUBSTR(string, start, length) function.
+func parseSubstr(expr string) (*dql.MathTree, error) {
+	args, err := extractFunctionArgs(expr)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(args) < 2 {
+		return nil, fmt.Errorf("SUBSTR requires at least 2 arguments (string, start[, length])")
+	}
+
+	strTree, err := parseOperand(strings.TrimSpace(args[0]))
+	if err != nil {
+		strTree, err = parseBindExpression(strings.TrimSpace(args[0]))
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	startTree, err := parseOperand(strings.TrimSpace(args[1]))
+	if err != nil {
+		return nil, err
+	}
+
+	var lengthTree *dql.MathTree
+	if len(args) >= 3 {
+		lengthTree, err = parseOperand(strings.TrimSpace(args[2]))
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	tree := &dql.MathTree{
+		Fn:    "substr",
+		Child: []*dql.MathTree{strTree, startTree},
+	}
+
+	if lengthTree != nil {
+		tree.Child = append(tree.Child, lengthTree)
+	}
+
+	return tree, nil
+}
+
+// parseStrlen parses STRLEN(string) function.
+func parseStrlen(expr string) (*dql.MathTree, error) {
+	args, err := extractFunctionArgs(expr)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(args) != 1 {
+		return nil, fmt.Errorf("STRLEN requires exactly 1 argument")
+	}
+
+	strTree, err := parseOperand(strings.TrimSpace(args[0]))
+	if err != nil {
+		strTree, err = parseBindExpression(strings.TrimSpace(args[0]))
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &dql.MathTree{
+		Fn:    "strlen",
+		Child: []*dql.MathTree{strTree},
+	}, nil
+}
+
+// parseMathFunction parses math functions like SQRT, ABS, FLOOR, CEIL, EXP, LN.
+func parseMathFunction(funcName, expr string) (*dql.MathTree, error) {
+	args, err := extractFunctionArgs(expr)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(args) != 1 {
+		return nil, fmt.Errorf("%s requires exactly 1 argument", strings.ToUpper(funcName))
+	}
+
+	argTree, err := parseOperand(strings.TrimSpace(args[0]))
+	if err != nil {
+		argTree, err = parseArithmeticExpression(strings.TrimSpace(args[0]))
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &dql.MathTree{
+		Fn:    funcName,
+		Child: []*dql.MathTree{argTree},
+	}, nil
+}
+
+// extractFunctionArgs extracts arguments from a function call like "FUNC(arg1, arg2, ...)".
+func extractFunctionArgs(expr string) ([]string, error) {
+	expr = strings.TrimSpace(expr)
+
+	// Find opening parenthesis
+	openIdx := strings.Index(expr, "(")
+	if openIdx < 0 {
+		return nil, fmt.Errorf("malformed function call: %s", expr)
+	}
+
+	// Find matching closing parenthesis
+	closeIdx := -1
+	parenCount := 0
+	for i := openIdx; i < len(expr); i++ {
+		if expr[i] == '(' {
+			parenCount++
+		} else if expr[i] == ')' {
+			parenCount--
+			if parenCount == 0 {
+				closeIdx = i
+				break
+			}
+		}
+	}
+
+	if closeIdx < 0 {
+		return nil, fmt.Errorf("unmatched parentheses in function call: %s", expr)
+	}
+
+	argsStr := expr[openIdx+1 : closeIdx]
+	if argsStr == "" {
+		return nil, fmt.Errorf("function requires at least one argument")
+	}
+
+	// Split by commas, but respect nested parentheses
+	var args []string
+	var current strings.Builder
+	depth := 0
+
+	for _, ch := range argsStr {
+		switch ch {
+		case '(':
+			depth++
+			current.WriteRune(ch)
+		case ')':
+			depth--
+			current.WriteRune(ch)
+		case ',':
+			if depth == 0 {
+				args = append(args, strings.TrimSpace(current.String()))
+				current.Reset()
+			} else {
+				current.WriteRune(ch)
+			}
+		default:
+			current.WriteRune(ch)
+		}
+	}
+
+	if current.Len() > 0 {
+		args = append(args, strings.TrimSpace(current.String()))
+	}
+
+	return args, nil
+}
+
+// isOperator returns true if the character is a math operator.
+func isOperator(ch byte) bool {
+	return ch == '+' || ch == '-' || ch == '*' || ch == '/' || ch == '%' ||
+		ch == '(' || ch == ')'
+}
+
+// isBalancedParens checks if a string of parentheses is balanced without outer parens.
+// E.g., "x + y" -> true, "x + (y * z)" -> true, "(x + y" -> false
+func isBalancedParens(s string) bool {
+	depth := 0
+	for _, ch := range s {
+		if ch == '(' {
+			depth++
+		} else if ch == ')' {
+			depth--
+			if depth < 0 {
+				return false
+			}
+		}
+	}
+	return depth == 0
 }
 
 // applyAggregates applies aggregate functions (COUNT, SUM, MIN, MAX, AVG) to DQL.

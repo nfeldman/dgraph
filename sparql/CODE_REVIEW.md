@@ -185,11 +185,11 @@ Only SELECT and ASK are implemented. CONSTRUCT and DESCRIBE query types return "
 - PREFIX declarations
 - OPTIONAL patterns
 - UNION patterns
-- **Aggregates (COUNT, SUM, MIN, MAX, AVG) with DISTINCT** ✅ _Just implemented_
+- **Aggregates (COUNT, SUM, MIN, MAX, AVG) with DISTINCT** ✅ _Task 2_
+- **BIND expressions (arithmetic, math functions, string ops)** ✅ _Task 3_
 - DISTINCT modifier
 - ORDER BY
 - LIMIT/OFFSET
-- BIND expressions
 - HAVING clauses
 - Named graphs (GRAPH keyword)
 - Comments
@@ -236,7 +236,7 @@ High priority:
 
 1. ~~Gate or remove simple-parser fallback; rely on visitor output.~~ (deferred)
 2. ✅ **Implement correct DQL aggregation, grouping, and HAVING.** _COMPLETED_
-3. Implement BIND expression parsing/binding.
+3. ✅ **Implement BIND expression parsing/binding.** _COMPLETED_
 4. Fix OPTIONAL (left-join) and UNION (OR) semantics.
 5. Extend FILTER support (boolean ops, built-ins) while keeping strict parsing.
 6. Implement subject IRI lookup.

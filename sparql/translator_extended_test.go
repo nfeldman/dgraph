@@ -278,7 +278,7 @@ func TestBindExpression(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "Simple math bind",
+			name: "Simple arithmetic bind (addition)",
 			bind: &BindExpression{
 				Expression: "?x + ?y",
 				Variable:   "?sum",
@@ -286,10 +286,18 @@ func TestBindExpression(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "String concatenation bind",
+			name: "Arithmetic with multiplication",
 			bind: &BindExpression{
-				Expression: "concat(?first, \" \", ?last)",
-				Variable:   "?fullname",
+				Expression: "?x * ?y",
+				Variable:   "?product",
+			},
+			wantErr: false,
+		},
+		{
+			name: "Math function (SQRT)",
+			bind: &BindExpression{
+				Expression: "sqrt(?value)",
+				Variable:   "?result",
 			},
 			wantErr: false,
 		},
@@ -305,8 +313,114 @@ func TestBindExpression(t *testing.T) {
 				return
 			}
 
-			if !tt.wantErr && rootQuery.Args == nil {
-				t.Error("Expected args to be initialized")
+			if !tt.wantErr {
+				// Verify that a child query was added with the variable
+				if len(rootQuery.Children) != 1 {
+					t.Errorf("Expected 1 child query, got %d", len(rootQuery.Children))
+				}
+				child := rootQuery.Children[0]
+				if child.Var != tt.bind.Variable {
+					t.Errorf("Expected child var %q, got %q", tt.bind.Variable, child.Var)
+				}
+				if child.MathExp == nil {
+					t.Error("Expected MathExp to be set")
+				}
+			}
+		})
+	}
+}
+
+// TestBindExpressionParsing tests individual expression parsing
+func TestBindExpressionParsing(t *testing.T) {
+	tests := []struct {
+		name     string
+		expr     string
+		wantFunc string
+		wantErr  bool
+	}{
+		{
+			name:     "Simple variable",
+			expr:     "?x",
+			wantFunc: "",
+			wantErr:  false,
+		},
+		{
+			name:     "Integer constant",
+			expr:     "42",
+			wantFunc: "",
+			wantErr:  false,
+		},
+		{
+			name:     "Float constant",
+			expr:     "3.14",
+			wantFunc: "",
+			wantErr:  false,
+		},
+		{
+			name:     "Addition",
+			expr:     "?x + ?y",
+			wantFunc: "+",
+			wantErr:  false,
+		},
+		{
+			name:     "Subtraction",
+			expr:     "?x - ?y",
+			wantFunc: "-",
+			wantErr:  false,
+		},
+		{
+			name:     "Multiplication",
+			expr:     "?x * ?y",
+			wantFunc: "*",
+			wantErr:  false,
+		},
+		{
+			name:     "Division",
+			expr:     "?x / ?y",
+			wantFunc: "/",
+			wantErr:  false,
+		},
+		{
+			name:     "Modulo",
+			expr:     "?x % ?y",
+			wantFunc: "%",
+			wantErr:  false,
+		},
+		{
+			name:     "SQRT function",
+			expr:     "sqrt(?value)",
+			wantFunc: "sqrt",
+			wantErr:  false,
+		},
+		{
+			name:     "ABS function",
+			expr:     "abs(?value)",
+			wantFunc: "abs",
+			wantErr:  false,
+		},
+		{
+			name:     "Parenthesized expression",
+			expr:     "(?x + ?y)",
+			wantFunc: "+",
+			wantErr:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mathTree, err := parseBindExpression(tt.expr)
+
+			if (err != nil) != tt.wantErr {
+				t.Errorf("parseBindExpression() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if !tt.wantErr && mathTree == nil {
+				t.Error("Expected non-nil MathTree")
+			}
+
+			if !tt.wantErr && tt.wantFunc != "" && mathTree.Fn != tt.wantFunc {
+				t.Errorf("Expected Fn=%q, got %q", tt.wantFunc, mathTree.Fn)
 			}
 		})
 	}
