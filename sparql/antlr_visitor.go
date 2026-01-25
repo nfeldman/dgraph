@@ -275,7 +275,27 @@ func (v *SparqlVisitor) VisitHavingClause(ctx *gen.HavingClauseContext) interfac
 	if ctx == nil {
 		return nil
 	}
-	v.query.Having = &HavingClause{Expression: ctx.GetText()}
+
+	// Get the full text of the HAVING clause, which includes the HAVING keyword
+	text := ctx.GetText()
+	if text == "" {
+		return nil
+	}
+
+	// Remove the "HAVING" keyword at the beginning
+	// The GetText() returns something like "HAVING(expression)" or "HAVING (expression)"
+	text = strings.TrimSpace(text)
+
+	// Case-insensitive removal of "HAVING"
+	if len(text) > 6 && strings.ToUpper(text[:6]) == "HAVING" {
+		text = strings.TrimSpace(text[6:])
+	}
+
+	if text == "" {
+		return nil
+	}
+
+	v.query.Having = &HavingClause{Expression: text}
 	return nil
 }
 
