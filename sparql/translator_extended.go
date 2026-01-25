@@ -274,29 +274,50 @@ func applyFilterExpression(target *dql.GraphQuery, expr string, opts TranslateOp
 	return nil
 }
 
-// buildFilterTreeFromExpr handles simple FILTER expressions: comparisons and regex.
-// Examples handled:
+// buildFilterTreeFromExpr handles FILTER expressions including:
+//   - Comparisons: ?a = 5, ?a != ?b, ?a < 10, etc.
+//   - Regex: regex(?var, "pattern")
+//   - Boolean operators: && (AND), || (OR), ! (NOT)
+//   - Membership: IN, NOT IN operators
+//   - Built-in functions: LANG(), DATATYPE(), STR(), STRLEN(), BOUND(), ISBLANK(), ISURI(), ISLITERAL()
+//   - String functions: UCASE(), LCASE(), CONTAINS(), STRSTARTS(), STRENDS()
 //
-//	FILTER(?a = 5)
-//	FILTER(?a != ?b)
-//	FILTER(?a < 10)
-//	FILTER(regex(?name, "^A"))
-//
-// Logical AND/OR with && / || are combined recursively.
+// Logical AND/OR/NOT with &&, ||, ! are combined recursively.
 func buildFilterTreeFromExpr(expr string) (*dql.FilterTree, error) {
+	if expr == "" {
+		return nil, fmt.Errorf("empty FILTER expression")
+	}
+
 	trimmed := strings.TrimSpace(expr)
 	if strings.HasPrefix(strings.ToUpper(trimmed), "FILTER") {
 		trimmed = strings.TrimSpace(trimmed[6:])
 	}
 	trimmed = strings.TrimSpace(trimmed)
+
 	// Drop outer parentheses when they wrap the whole expression
 	for strings.HasPrefix(trimmed, "(") && strings.HasSuffix(trimmed, ")") {
 		trimmed = strings.TrimSpace(trimmed[1 : len(trimmed)-1])
 	}
 
-	// Handle OR / AND (naive split; sufficient for simple expressions)
-	if strings.Contains(trimmed, "||") {
-		parts := strings.Split(trimmed, "||")
+	// Handle NOT (!) operator - check at the beginning
+	if strings.HasPrefix(trimmed, "!") {
+		innerExpr := strings.TrimSpace(trimmed[1:])
+		innerFt, err := buildFilterTreeFromExpr(innerExpr)
+		if err != nil {
+			return nil, fmt.Errorf("parsing NOT expression: %w", err)
+		}
+		// Wrap the inner filter in a NOT by creating a FilterTree with Op="NOT"
+		// or by setting a not function
+		return &dql.FilterTree{
+			Op:    "NOT",
+			Child: []*dql.FilterTree{innerFt},
+		}, nil
+	}
+
+	// Handle OR / AND operators (recursive descent)
+	// OR has lower precedence, so check it first
+	if idx := findOperatorOutsideParens(trimmed, "||"); idx >= 0 {
+		parts := splitByOperator(trimmed, "||")
 		var children []*dql.FilterTree
 		for _, p := range parts {
 			if ft, err := buildFilterTreeFromExpr(p); err == nil && ft != nil {
@@ -313,8 +334,9 @@ func buildFilterTreeFromExpr(expr string) (*dql.FilterTree, error) {
 		}
 		return &dql.FilterTree{Op: "OR", Child: children}, nil
 	}
-	if strings.Contains(trimmed, "&&") {
-		parts := strings.Split(trimmed, "&&")
+
+	if idx := findOperatorOutsideParens(trimmed, "&&"); idx >= 0 {
+		parts := splitByOperator(trimmed, "&&")
 		var children []*dql.FilterTree
 		for _, p := range parts {
 			if ft, err := buildFilterTreeFromExpr(p); err == nil && ft != nil {
@@ -332,7 +354,15 @@ func buildFilterTreeFromExpr(expr string) (*dql.FilterTree, error) {
 		return &dql.FilterTree{Op: "AND", Child: children}, nil
 	}
 
-	// Comparison operators
+	// Handle IN and NOT IN operators
+	if match := parseINOperatorDirect(trimmed); match != nil {
+		return match, nil
+	}
+	if match := parseNOTINOperatorDirect(trimmed); match != nil {
+		return match, nil
+	}
+
+	// Handle comparison operators
 	compRe := regexp.MustCompile(`^([?$]\w+)\s*(=|!=|<=|>=|<|>)\s*(.+)$`)
 	if m := compRe.FindStringSubmatch(trimmed); len(m) == 4 {
 		lhs := strings.TrimSpace(m[1])
@@ -354,7 +384,7 @@ func buildFilterTreeFromExpr(expr string) (*dql.FilterTree, error) {
 		}, nil
 	}
 
-	// regex(?var, "pattern")
+	// Handle regex function
 	regexRe := regexp.MustCompile(`^regex\s*\(\s*([?$]\w+)\s*,\s*"([^"]*)"\s*\)$`)
 	if m := regexRe.FindStringSubmatch(trimmed); len(m) == 3 {
 		attr := strings.TrimLeft(m[1], "?$")
@@ -366,6 +396,11 @@ func buildFilterTreeFromExpr(expr string) (*dql.FilterTree, error) {
 				Args: []dql.Arg{{Value: quoteString(pattern)}},
 			},
 		}, nil
+	}
+
+	// Handle built-in functions
+	if builtInFt := parseBuiltInFunctionDirect(trimmed); builtInFt != nil {
+		return builtInFt, nil
 	}
 
 	return nil, fmt.Errorf("unsupported FILTER expression: %s", trimmed)
