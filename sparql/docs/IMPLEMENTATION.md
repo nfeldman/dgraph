@@ -1,14 +1,16 @@
 # SPARQL Implementation Summary
 
-## Phases Overview
+## Phases Overview (status: 2026-01)
 
-### Phase 1: Named Graph Support (COMPLETED ✅)
+### Phase 1: Named Graph Support (DONE ✅)
 
-Core implementation of SPARQL named graph features with FROM/FROM NAMED/GRAPH.
+- Graph predicate approach (quad loader + filters) with FROM / FROM NAMED / GRAPH on fixed IRIs.
 
-### Phase 2: Extended Features (COMPLETED ✅)
+### Phase 2: Extended Features (PARTIAL / EXPERIMENTAL ⚠️)
 
-Implementation of OPTIONAL, UNION, aggregates, BIND, and HAVING.
+- OPTIONAL, UNION, aggregates, BIND, HAVING, ORDER BY, DISTINCT are wired into the AST and
+  translator, but semantics are simplified and not schema-aware. End-to-end correctness and coverage
+  are not yet validated.
 
 ## What Was Implemented
 
@@ -137,15 +139,19 @@ The `graph` predicate enables filtering by graph membership in DQL queries.
 - `sparql/translate_test.go` - Comprehensive test suite
 - `docs/sparql-syntax-and-named-graph-design.md` - Updated roadmap and implementation details
 
-## Next Steps (Not Yet Implemented)
+## Next Steps / Gaps (priority)
 
-1. **Variable Graph Patterns**: `GRAPH ?g { ... }` binding
-2. **ANTLR Visitor Integration**: Parse actual SPARQL text
-3. **Full Triple Translation**: Proper subject/object handling with UID resolution
-4. **PREFIX Expansion**: Expand prefixed names to full IRIs
-5. **OPTIONAL, UNION**: Complex graph pattern operators
-6. **FILTER Expressions**: Boolean constraints on variables
-7. **Integration Testing**: End-to-end tests with actual Dgraph instance
+1. **SPARQL Algebra layer**: Insert algebra IR to enable correct OPTIONAL/UNION semantics, filter
+   pushdown, and optimizer passes.
+2. **Schema-aware OPTIONAL/UNION**: Generate true left-join behavior and correct OR semantics using
+   schema/type information; remove placeholder filters.
+3. **ANTLR visitor coverage**: Parse HAVING, property paths, and extended filters; ensure GRAPH
+   variable handling and full expression capture.
+4. **Service integrations**: UID/IRI resolution and authorization enforcement for SPARQL entrypoint.
+5. **Property paths (Kleene)**: Implement `*` / `+` paths and verification.
+6. **CONSTRUCT / DESCRIBE / UPDATE**: Not started.
+7. **End-to-end tests**: Validate translator + parser + execution against Dgraph instance with quad
+   loader.
 
 ## Usage Example
 
@@ -178,6 +184,10 @@ gqs, prefixes, _ := sparql.TranslateToGraphQueries(ctx, query, opts)
 ```
 
 ## Phase 2: Extended Features Implementation
+
+> Status: Translator hooks and tests exist, but semantics are simplified and not yet validated end
+> to end. OPTIONAL/UNION do not currently implement true SPARQL join semantics; aggregates/BIND/
+> HAVING are wired but need schema-aware execution and parser coverage.
 
 ### New Components
 

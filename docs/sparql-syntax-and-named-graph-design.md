@@ -6,27 +6,25 @@ This document describes the architecture, translation rules, and data modeling a
 supporting SPARQL queries—including named graph constructs (`GRAPH`, `FROM`, `FROM NAMED`)—in Dgraph
 using ANTLR-generated parser and predicate emulation.
 
-## Current status (2026-01-25)
+For the latest overall status, see `../SPARQL_STATUS.md`.
 
-- **Implemented:**
-  - ANTLR visitor builds `SPARQLQueryImpl` for `SELECT`/`ASK`, parsing prefixes, projections,
-    DISTINCT, FROM / FROM NAMED, GRAPH blocks, OPTIONAL, UNION, BIND, aggregates
-    (COUNT/SUM/MIN/MAX/AVG with DISTINCT), HAVING, ORDER BY, LIMIT/OFFSET, FILTER, and
-    graph-annotated BGPs.
-  - Quad loader emits graph membership triples and is covered by extensive tests.
-  - Translator supports graph filtering semantics, OPTIONAL/UNION, aggregates, BIND, HAVING,
-    DISTINCT, ORDER, LIMIT/OFFSET, and now maps FILTER comparisons/regex to structured DQL filters
-    (raw fallback only when explicitly allowed via options); examples and e2e tests are green.
-- **Shortcuts/deviations:**
-  - `antlr_adapter` still falls back to the legacy simple parser if ANTLR rejects input **or** if
-    the visitor yields no patterns; this bypasses the AST in those cases.
-  - FILTER translation covers comparisons/regex; complex expressions error in strict mode (default)
-    and only fall back to raw when `AllowFilterFallback` is enabled.
-  - HTTP integration stub (`http_integration.go`) remains unimplemented.
-- **Remaining stubs before wider usability:**
-  - Refine FILTER translation to structured DQL functions and expression mapping.
-  - Remove/replace the simple-parser fallback once visitor coverage is complete.
-  - Add support for CONSTRUCT/DESCRIBE and property paths as planned.
+## Current status (2026-01)
+
+- **Implemented/stable:**
+  - Quad loader emits `graph` membership triples for N-Quads and is covered by unit tests.
+  - Translator applies FROM / FROM NAMED / GRAPH filtering on fixed IRIs using the `graph`
+    predicate.
+  - SELECT/ASK over basic graph patterns with FILTER and PREFIX resolution.
+- **Present but experimental:**
+  - OPTIONAL, UNION, aggregates, BIND, HAVING, ORDER BY, DISTINCT are wired through AST and
+    translator with simplified semantics; schema-aware planning and full SPARQL semantics are not
+    yet implemented.
+  - ANTLR visitor coverage for HAVING/property paths is incomplete; simple-parser fallback may still
+    be used in some cases.
+- **Not implemented:**
+  - Variable GRAPH, full property paths (`*`, `+`), CONSTRUCT/DESCRIBE/UPDATE, SERVICE/federation,
+    HTTP/SPARQL endpoint integration.
+- See `sparql/README.md` for the latest consolidated status and roadmap.
 
 ## Goals
 
@@ -113,31 +111,27 @@ WHERE {
 
 ## Implementation Roadmap
 
-### Phase 1: Core Implementation (COMPLETED ✅)
+### Phase 1: Core named-graph plumbing (DONE ✅)
 
-- [x] Integrate ANTLR-generated parser checked in to source for reproducibility.
-- [x] Extend AST and visitor to support FROM, FROM NAMED, and GRAPH annotations.
-- [x] Translator logic emitting filter expressions for graph partitions per SPARQL rules.
-- [x] Example logic and code snippets for loader and test cases.
-- [x] Unit and integration tests for representative SPARQL queries and DQL translations.
-- [x] Comprehensive test coverage for loader, translator, and utilities.
+- [x] Graph predicate model and quad loader
+- [x] FROM / FROM NAMED / GRAPH filtering in translator (fixed IRIs)
+- [x] Unit tests for loader/translator examples
 
-### Phase 2: Documentation & Validation (COMPLETED ✅, ongoing doc refresh)
+### Phase 2: Extended features & validation (IN PROGRESS ⚠️)
 
-- [x] Document implementation details and core files.
-- [x] Document edge cases and limitations.
-- [x] Create TEST_COVERAGE.md with detailed test matrix (110+ test cases).
-- [x] Create IMPLEMENTATION.md with architecture and usage guide.
-- [ ] Continue refreshing docs as ANTLR visitor replaces simple-parser fallback and FILTER support
-      lands.
+- [ ] OPTIONAL/UNION semantics aligned with SPARQL (needs algebra + schema-awareness)
+- [ ] Aggregates/BIND/HAVING parser coverage and execution validation
+- [ ] Remove simple-parser fallback once ANTLR visitor is complete
+- [ ] Structured FILTER translation for complex expressions
+- [ ] Test matrix refreshed end-to-end
 
-### Phase 3: Future Enhancements (PLANNED)
+### Phase 3: Future enhancements (PLANNED)
 
-- [ ] Complete ANTLR visitor coverage (FILTER expressions, CONSTRUCT/DESCRIBE, property paths).
-- [ ] Reduce/remove legacy simple-parser fallback once visitor covers all patterns.
-- [ ] Variable graph patterns (GRAPH ?g) support.
-- [ ] Performance optimizations and query planning.
-- [ ] Integration with actual Dgraph instance.
+- [ ] Full property paths (including `*` / `+`)
+- [ ] GRAPH variable binding
+- [ ] CONSTRUCT / DESCRIBE / UPDATE
+- [ ] SERVICE / federation
+- [ ] HTTP/SPARQL endpoint integration and planner optimizations
 
 ### Test Coverage Summary
 

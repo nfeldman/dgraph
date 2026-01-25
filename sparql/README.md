@@ -5,56 +5,64 @@ translate SPARQL queries into Dgraph's internal dql.GraphQuery AST.
 
 ## Overview
 
-- Generate a Go parser from the SPARQL grammar (grammars-v4).
-- Implement a visitor/listener that creates a small intermediate SPARQL AST.
-- Translate that AST into []\*dql.GraphQuery using TranslateToGraphQueries.
-- Hook into the server (e.g., register a /sparql endpoint) and reuse existing execution pipeline
-  (ToSubGraph, Request.ProcessQuery).
+- ANTLR-generated Go parser for SPARQL 1.1 (checked in under `sparql/gen/`).
+- Visitor builds a small SPARQL AST (`SPARQLQueryImpl`).
+- Translator maps that AST into `[]*dql.GraphQuery` for execution in Dgraph.
+- Named graph support is implemented by storing the graph IRI in a `graph` predicate and filtering
+  via FROM / FROM NAMED / GRAPH.
+
+## Current Status (2026-01)
+
+- **Implemented and exercised**: SELECT/ASK over basic graph patterns; FILTER (common functions),
+  PREFIX expansion; dataset scoping via FROM/FROM NAMED/GRAPH on fixed IRIs; quad loader that
+  materializes `graph` membership.
+- **Present but partial/experimental**: OPTIONAL, UNION, aggregates, BIND, HAVING, ORDER BY,
+  DISTINCT are wired in the AST/translator but semantics are simplified and not validated against
+  the full SPARQL spec or schema-aware execution. Property paths are minimal (no Kleene).
+- **Not implemented**: CONSTRUCT, DESCRIBE, UPDATE, SERVICE/federation, variable GRAPH, full
+  property paths (`*`, `+`).
+- **Planned**: SPARQL Algebra IR to enable correct OPTIONAL semantics, schema/authorization
+  integration, and optimizer passes. ANTLR visitor updates to cover HAVING and property paths.
 
 ## Architecture & Future Direction
 
-The current implementation translates SPARQL AST directly to DQL queries. We are planning an
-architectural evolution to introduce a **SPARQL Algebra** intermediate representation that will:
+Today the pipeline is direct AST → DQL translation. The intended evolution inserts a SPARQL Algebra
+layer to enable rewriting, schema-awareness, and auth enforcement before DQL generation. See:
 
-- Enable **structured query rewriting** (filter pushdown, join reordering)
-- **Integrate schema information** for type-aware optimizations
-- **Apply authorization rules** (currently missing for SPARQL)
-- Establish foundation for **ontology reasoning**
-
-See the following documents for detailed information:
-
-- **[ARCHITECTURE_SPEC.md](ARCHITECTURE_SPEC.md)** - High-level architectural vision and design
-- **[SPARQL_ALGEBRA_TODO.md](SPARQL_ALGEBRA_TODO.md)** - Detailed 5-phase implementation plan
-- **[PHASE_1_GETTING_STARTED.md](PHASE_1_GETTING_STARTED.md)** - Immediate next steps for Phase 1
+- **[ARCHITECTURE_SPEC.md](ARCHITECTURE_SPEC.md)** – High-level architectural vision
+- **[SPARQL_ALGEBRA_TODO.md](SPARQL_ALGEBRA_TODO.md)** – 5-phase implementation plan
+- **[PHASE_1_GETTING_STARTED.md](PHASE_1_GETTING_STARTED.md)** – Immediate next steps for Phase 1
 
 Development flow
 
 1. Place `SPARQL.g4` (from https://github.com/antlr/grammars-v4/tree/master/sparql) into this
    directory.
-2. Run `./generate_parser.sh` (this downloads or uses the local ANTLR jar) which will produce
-   generated parser code in `sparql/gen/`.
-3. Implement an ANTLR visitor that builds a SPARQLQuery implementation used by the translator.
-4. Implement the translator in `translate.go` (map triple patterns, FILTER, OPTIONAL, UNION,
-   ORDER/LIMIT).
-5. Add tests and rely on CI to run the parser generation step for PR builds.
+2. Run `./generate_parser.sh` to regenerate `sparql/gen/` (parser is committed for reproducibility).
+3. Implement/extend the ANTLR visitor to populate `SPARQLQueryImpl` (HAVING and property paths need
+   coverage).
+4. Improve the translator to route through the planned algebra layer; today it directly maps AST →
+   DQL.
+5. Add/maintain tests; CI should regenerate the parser for PR builds.
 
-Current: We check in the generated parser under `sparql/gen/` for stable builds and reproducibility.
-
-Supported subset (v1)
+Supported today (stable path)
 
 - SELECT / ASK
 - Basic graph patterns (triple patterns)
 - PREFIX resolution
 - FILTER with common functions (regex, comparisons, langMatches, boolean ops)
-- OPTIONAL, UNION, LIMIT, OFFSET, ORDER BY, DISTINCT
-- Basic COUNT aggregation (basic GROUP BY)
-- Property-path sequence and inverse (limited support)
+- FROM / FROM NAMED / GRAPH (static IRI) via `graph` predicate filtering
 
-Not in v1
+Experimental / partial
+
+- OPTIONAL, UNION, aggregates, BIND, HAVING, ORDER BY, DISTINCT (translator hooks exist; semantics
+  need validation and schema-aware execution)
+- Property-path sequence and inverse (limited)
+
+Out of scope currently
 
 - CONSTRUCT, DESCRIBE, UPDATE
-- SERVICE/federation
-- Full Kleene property paths (`*`, `+`) (planned for v2)
+- SERVICE / federation
+- Full Kleene property paths (`*`, `+`)
 
 ## Documentation Index
 

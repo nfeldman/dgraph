@@ -1,8 +1,10 @@
 # Extended SPARQL Features Implementation
 
-This document describes the new SPARQL features implemented in Phase 2 of the SPARQL translator.
+This document describes the extended SPARQL features that are wired into the translator. These are
+currently **experimental**: semantics are simplified (not schema-aware), and full end-to-end
+validation against the SPARQL spec has not been completed.
 
-## Features Implemented
+## Features Present (experimental)
 
 ### 1. OPTIONAL Patterns
 
@@ -20,6 +22,8 @@ SELECT ?s ?name WHERE {
 - New `OptionalPattern` type in AST
 - Translates to DQL patterns that are naturally optional (missing edges don't fail)
 - Allows left outer join semantics
+- Current translator implementation is a simplified approximation; proper left-join semantics need
+  schema-aware planning/algebra layer.
 
 **Files Modified:**
 
@@ -49,6 +53,8 @@ SELECT ?s WHERE {
 - New `UnionPattern` type in AST
 - Maintains list of alternative patterns
 - Translates to DQL OR filters or multiple query paths
+- Current translator builds placeholder OR filters; full SPARQL UNION semantics require planner
+  integration.
 
 **Files Modified:**
 
@@ -91,6 +97,7 @@ SELECT (COUNT(DISTINCT ?s) AS ?unique_count)
 - New `Aggregate` type in AST
 - Maps to DQL `@groupby` directive
 - Supports DISTINCT modifier
+- Needs schema-aware execution and alignment with HAVING parsing; current coverage is limited.
 
 **Files Modified:**
 
@@ -167,6 +174,8 @@ HAVING (COUNT(?item) > 5)
 - New `HavingClause` type in AST
 - Applies filters to aggregate results
 - Executed after GROUP BY
+- ANTLR visitor does not yet capture full HAVING expressions; parser and translator alignment are
+  required.
 
 **Files Modified:**
 
