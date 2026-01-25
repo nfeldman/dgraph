@@ -305,23 +305,97 @@ func applyBindExpression(query *dql.GraphQuery, bind *BindExpression) error {
 	return nil
 }
 
-// applyAggregates applies aggregate functions (COUNT, SUM, MIN, MAX, AVG)
+// applyAggregates applies aggregate functions (COUNT, SUM, MIN, MAX, AVG) to DQL.
+// It transforms SPARQL aggregates into DQL @groupby directives with proper
+// variable assignments (e.g., `a as count(uid)`, `sum_val as sum(value)`, etc.)
+//
+// For DISTINCT aggregates, the attribute is prefixed with "distinct " in DQL.
+//
+// SPARQL -> DQL mapping:
+//   - COUNT(?var) -> count(uid) [ignores var in DQL, counts UIDs]
+//   - SUM(?var)   -> sum(value_attr)
+//   - MIN(?var)   -> min(value_attr)
+//   - MAX(?var)   -> max(value_attr)
+//   - AVG(?var)   -> avg(value_attr)
+//   - With DISTINCT: distinct attr_name
 func applyAggregates(query *dql.GraphQuery, aggregates []*Aggregate) error {
-	// Map SPARQL aggregates to DQL @groupby directive
-	// COUNT(?x) -> count(uid)
-	// SUM(?x) -> sum(value)
-	// MIN(?x) -> min(value)
-	// MAX(?x) -> max(value)
-	// AVG(?x) -> avg(value)
-
-	for _, agg := range aggregates {
-		attr := &dql.GroupByAttr{
-			Attr:  agg.Function + "(" + agg.Variable + ")",
-			Alias: agg.Alias,
-		}
-		query.GroupbyAttrs = append(query.GroupbyAttrs, *attr)
-		query.IsGroupby = true
+	if len(aggregates) == 0 {
+		return nil
 	}
+
+	// Enable groupby mode
+	query.IsGroupby = true
+
+	// Process each aggregate function
+	for _, agg := range aggregates {
+		if err := applyAggregate(query, agg); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// applyAggregate applies a single aggregate function to the query.
+func applyAggregate(query *dql.GraphQuery, agg *Aggregate) error {
+	if agg == nil {
+		return nil
+	}
+
+	// Normalize function name to lowercase for DQL
+	funcName := strings.ToLower(agg.Function)
+
+	// Map SPARQL aggregate syntax to DQL aggregate functions
+	var dqlAggregate string
+	switch funcName {
+	case "count":
+		// COUNT(?x) in SPARQL becomes count(uid) in DQL
+		// The variable is implicit (counts distinct UIDs)
+		if agg.Distinct {
+			dqlAggregate = "distinct count(uid)"
+		} else {
+			dqlAggregate = "count(uid)"
+		}
+
+	case "sum", "avg", "min", "max":
+		// For numerical aggregates, extract the predicate from variable
+		// SUM(?val) -> sum(value) where "value" is inferred from context
+		// For now, use a generic "value" attribute; in a real scenario,
+		// this would come from the query pattern analysis
+		var attrName string
+		if strings.HasPrefix(agg.Variable, "?") {
+			attrName = agg.Variable[1:] // strip "?" prefix
+		} else {
+			attrName = agg.Variable
+		}
+
+		if agg.Distinct {
+			dqlAggregate = fmt.Sprintf("distinct %s(%s)", funcName, attrName)
+		} else {
+			dqlAggregate = fmt.Sprintf("%s(%s)", funcName, attrName)
+		}
+
+	default:
+		return fmt.Errorf("unsupported aggregate function: %s", agg.Function)
+	}
+
+	// Create a child query to hold the aggregate result
+	// In DQL, aggregates are typically placed as child queries with variable assignments
+	childQuery := &dql.GraphQuery{
+		Attr:    dqlAggregate,
+		Var:     agg.Alias,
+		IsCount: funcName == "count",
+	}
+
+	// Also add to GroupbyAttrs for proper groupby directives
+	groupbyAttr := &dql.GroupByAttr{
+		Attr:  dqlAggregate,
+		Alias: agg.Alias,
+	}
+	query.GroupbyAttrs = append(query.GroupbyAttrs, *groupbyAttr)
+
+	// Append as a child query so the aggregate can be selected
+	query.Children = append(query.Children, childQuery)
 
 	return nil
 }

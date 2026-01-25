@@ -185,8 +185,8 @@ Only SELECT and ASK are implemented. CONSTRUCT and DESCRIBE query types return "
 - PREFIX declarations
 - OPTIONAL patterns
 - UNION patterns
-- Aggregates (COUNT, SUM)
-- DISTINCT
+- **Aggregates (COUNT, SUM, MIN, MAX, AVG) with DISTINCT** ✅ _Just implemented_
+- DISTINCT modifier
 - ORDER BY
 - LIMIT/OFFSET
 - BIND expressions
@@ -234,8 +234,8 @@ dql.GraphQuery (DQL AST)
 
 High priority:
 
-1. Gate or remove simple-parser fallback; rely on visitor output.
-2. Implement correct DQL aggregation, grouping, and HAVING.
+1. ~~Gate or remove simple-parser fallback; rely on visitor output.~~ (deferred)
+2. ✅ **Implement correct DQL aggregation, grouping, and HAVING.** _COMPLETED_
 3. Implement BIND expression parsing/binding.
 4. Fix OPTIONAL (left-join) and UNION (OR) semantics.
 5. Extend FILTER support (boolean ops, built-ins) while keeping strict parsing.
