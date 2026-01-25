@@ -50,7 +50,14 @@ type RDFTriple struct {
 //
 // This allows Dgraph to filter by graph membership using the translator's logic.
 func (l *QuadLoader) LoadQuads(r io.Reader) ([]*RDFTriple, error) {
-	scanner := bufio.NewScanner(r)
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return nil, fmt.Errorf("reading input: %w", err)
+	}
+
+	// Normalize the stream so that concatenated quads without newlines are split correctly.
+	normalized := normalizeNQuadStream(string(data))
+	scanner := bufio.NewScanner(strings.NewReader(normalized))
 	var triples []*RDFTriple
 
 	for scanner.Scan() {
@@ -84,10 +91,37 @@ func (l *QuadLoader) LoadQuads(r io.Reader) ([]*RDFTriple, error) {
 	}
 
 	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("reading input: %w", err)
+		return nil, fmt.Errorf("reading normalized input: %w", err)
 	}
 
 	return triples, nil
+}
+
+// normalizeNQuadStream inserts line breaks between quads even when the input
+// stream omits newlines (e.g., `... .<next>`). This keeps scanning simple while
+// remaining tolerant of compacted datasets used in tests.
+func normalizeNQuadStream(input string) string {
+	var sb strings.Builder
+	runes := []rune(input)
+	for i := 0; i < len(runes); i++ {
+		r := runes[i]
+		sb.WriteRune(r)
+		if r == '.' {
+			// Look ahead to see if next non-space character starts another quad.
+			j := i + 1
+			for j < len(runes) {
+				if runes[j] == ' ' || runes[j] == '\t' || runes[j] == '\n' || runes[j] == '\r' {
+					j++
+					continue
+				}
+				break
+			}
+			if j < len(runes) && runes[j] == '<' {
+				sb.WriteRune('\n')
+			}
+		}
+	}
+	return sb.String()
 }
 
 // parseNQuad is a simplified N-Quads parser for demonstration.
@@ -173,11 +207,11 @@ func escapeSubject(s string) string {
 }
 
 func escapePredicate(p string) string {
-	// Extract local name from IRI
-	if idx := strings.LastIndex(p, "/"); idx >= 0 {
+	// Extract local name from IRI. Prefer fragment (#) over path (/).
+	if idx := strings.LastIndex(p, "#"); idx >= 0 {
 		return p[idx+1:]
 	}
-	if idx := strings.LastIndex(p, "#"); idx >= 0 {
+	if idx := strings.LastIndex(p, "/"); idx >= 0 {
 		return p[idx+1:]
 	}
 	return p

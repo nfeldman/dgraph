@@ -1,6 +1,7 @@
 package sparql
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -142,9 +143,9 @@ func TestParseNQuad_TrimsPeriod(t *testing.T) {
 		t.Fatalf("Unexpected error: %v", err)
 	}
 
-	// Should not contain period
-	if strings.Contains(triple.Subject, ".") {
-		t.Error("Subject contains period - parsing did not trim properly")
+	// Should not end with trailing period
+	if strings.HasSuffix(triple.Subject, ".") {
+		t.Error("Subject has trailing period - parsing did not trim properly")
 	}
 }
 
@@ -316,9 +317,7 @@ func TestLoadQuads_LargeDataset(t *testing.T) {
 	// Create 100 quads
 	var sb strings.Builder
 	for i := 0; i < 100; i++ {
-		sb.WriteString(strings.TrimSpace(`
-<http://example.org/entity/` + string(rune(i)) + `> <http://example.org/prop> "value` + string(rune(i)) + `" <http://example.org/g1> .
-`))
+		sb.WriteString(fmt.Sprintf("<http://example.org/entity/%d> <http://example.org/prop> \"value%d\" <http://example.org/g1> .\n", i, i))
 	}
 
 	loader := NewQuadLoader()

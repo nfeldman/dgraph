@@ -20,7 +20,7 @@ type SPARQLQuery interface {
 	// GetPrefixes returns the map of declared prefixes in the query.
 	GetPrefixes() map[string]string
 	// RootGraphPatterns returns a list of top-level graph pattern nodes.
-	// Concrete types for GraphPattern are defined in antlr_adapter.go visitor output.
+	// Concrete types for GraphPattern are defined in ast.go.
 	RootGraphPatterns() []interface{}
 	// ProjectionVars returns the projection variable names for SELECT queries.
 	ProjectionVars() []string
@@ -28,5 +28,4 @@ type SPARQLQuery interface {
 	FROM() []string
 	// FROMNamed returns the list of named graph IRIs available for GRAPH patterns.
 	FROMNamed() []string
-	// Accessor stubs for Limit/Offset/OrderBy etc can be added as needed.
 }

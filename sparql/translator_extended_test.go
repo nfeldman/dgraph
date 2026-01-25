@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	dql "github.com/nfeldman/dgraph/dql"
+	dql "github.com/dgraph-io/dgraph/v25/dql"
 )
 
 // TestOptionalPattern tests OPTIONAL pattern handling
@@ -35,10 +35,9 @@ func TestOptionalPattern(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
 			rootQuery := &dql.GraphQuery{Attr: "query"}
 
-			err := translateGraphPattern(tt.pattern, []string{}, []string{}, rootQuery)
+			err := translateGraphPattern(tt.pattern, []string{}, []string{}, rootQuery, TranslateOptions{})
 			if (err != nil) != tt.wantErr {
 				t.Errorf("translateGraphPattern() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -85,10 +84,9 @@ func TestUnionPattern(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
 			rootQuery := &dql.GraphQuery{Attr: "query"}
 
-			err := translateGraphPattern(tt.pattern, []string{}, []string{}, rootQuery)
+			err := translateGraphPattern(tt.pattern, []string{}, []string{}, rootQuery, TranslateOptions{})
 			if (err != nil) != tt.wantErr {
 				t.Errorf("translateGraphPattern() error = %v, wantErr %v", err, tt.wantErr)
 			}

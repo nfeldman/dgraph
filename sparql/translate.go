@@ -2,45 +2,45 @@ package sparql
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
-	dql "github.com/nfeldman/dgraph/dql"
+	dql "github.com/dgraph-io/dgraph/v25/dql"
 )
 
-// TranslateOptions may include dataset and translation settings.
+// TranslateOptions holds configuration for translation
 type TranslateOptions struct {
-	// Any additional options go here, e.g. rewriting rules, query mode, etc.
+	// AllowFilterFallback permits falling back to raw FILTER attachment when parsing fails.
+	// Defaults to false (strict): parsing errors will surface.
+	AllowFilterFallback bool
 }
 
-// ParseAndTranslate: high-level entry, handles parsing and DQL translation.
-func ParseAndTranslate(ctx context.Context, parser SPARQLParser, q string, opts TranslateOptions) ([]*dql.GraphQuery, map[string]string, error) {
-	sq, err := parser.Parse(ctx, q)
-	if err != nil {
-		return nil, nil, err
-	}
-	return TranslateToGraphQueries(ctx, sq, opts)
-}
-
+// TranslateToGraphQueries is the main entry point for translating SPARQL queries to DQL
 func TranslateToGraphQueries(ctx context.Context, sq SPARQLQuery, opts TranslateOptions) ([]*dql.GraphQuery, map[string]string, error) {
 	if sq == nil {
-		return nil, nil, errors.New("nil SPARQLQuery")
+		return nil, nil, fmt.Errorf("query is nil")
 	}
 
-	switch sq.Type() {
+	queryType := sq.Type()
+	switch queryType {
 	case "SELECT":
-		// Try extended translator first (with OPTIONAL, UNION, aggregates, BIND, HAVING)
-		// If the query has extended features, it will be handled here
-		if hasExtendedFeatures(sq) {
-			return TranslateSelectExtended(ctx, sq, opts)
-		}
-		// Fall back to basic translator for simple queries
-		return translateSelect(ctx, sq, opts)
+		return TranslateSelectExtended(ctx, sq, opts)
 	case "ASK":
 		return translateAsk(ctx, sq, opts)
 	default:
-		return nil, nil, fmt.Errorf("unsupported SPARQL query type %q", sq.Type())
+		return nil, nil, fmt.Errorf("unsupported query type: %s", queryType)
 	}
+}
+
+// ParseAndTranslate parses a SPARQL query string and translates it to DQL
+func ParseAndTranslate(ctx context.Context, parser SPARQLParser, query string, opts TranslateOptions) ([]*dql.GraphQuery, map[string]string, error) {
+	// Parse the SPARQL query
+	sq, err := parser.Parse(ctx, query)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parsing SPARQL: %w", err)
+	}
+
+	// Translate to DQL
+	return TranslateToGraphQueries(ctx, sq, opts)
 }
 
 // hasExtendedFeatures checks if the query uses extended SPARQL features

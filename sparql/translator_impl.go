@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	dql "github.com/nfeldman/dgraph/dql"
+	dql "github.com/dgraph-io/dgraph/v25/dql"
 )
 
 // translateSelect converts a SPARQL SELECT query to DQL GraphQuery.
@@ -108,9 +108,8 @@ func translateTriple(triple *Triple, fromGraphs, fromNamedGraphs []string) (*dql
 		// Subject is a variable - use as Var
 		query.Var = strings.TrimPrefix(strings.TrimPrefix(triple.Subject, "?"), "$")
 	} else {
-		// Subject is an IRI or literal - would need UID resolution
-		// For now, we'll need to handle this in a more sophisticated way
-		// This is a simplified placeholder
+		// Subject is an IRI or literal - would need UID resolution via a lookup query.
+		// TODO: Implement IRI/literal subject handling by adding a nested query for UID lookup.
 		query.Var = "_subject"
 	}
 

@@ -104,7 +104,7 @@ SELECT (COUNT(DISTINCT ?s) AS ?unique_count)
 
 **SPARQL → DQL Mapping:**
 
-```
+```text
 COUNT(?x)  → count(uid)
 SUM(?x)    → sum(value)
 MIN(?x)    → min(value)
@@ -256,12 +256,12 @@ This query demonstrates:
 
 ## Files Changed in Phase 2
 
-### New Files:
+### New Files
 
 - `translator_extended.go` - Extended translator implementation
 - `translator_extended_test.go` - Test suite for extended features
 
-### Modified Files:
+### Modified Files
 
 - `ast.go` - Added GraphPattern types and new query fields
 - `translate.go` - Updated dispatch logic

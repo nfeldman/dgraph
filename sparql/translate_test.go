@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	dql "github.com/nfeldman/dgraph/dql"
+	dql "github.com/dgraph-io/dgraph/v25/dql"
 )
 
 func TestSPARQLParseAndTranslate_Basic(t *testing.T) {

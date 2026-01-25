@@ -149,7 +149,7 @@ go test ./sparql/... -v -count=1
 
 ### Sample N-Quads
 
-```
+```turtle
 <http://example.org/alice> <http://example.org/name> "Alice" <http://example.org/g1> .
 <http://example.org/bob> <http://example.org/name> "Bob" <http://example.org/g2> .
 <http://example.org/alice> <http://example.org/age> "30" <http://example.org/g1> .

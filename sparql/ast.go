@@ -27,6 +27,7 @@ type GraphPattern interface {
 func (b *BGP) isGraphPattern()             {}
 func (o *OptionalPattern) isGraphPattern() {}
 func (u *UnionPattern) isGraphPattern()    {}
+func (f *FilterPattern) isGraphPattern()   {}
 
 // OptionalPattern represents OPTIONAL { ... } pattern blocks
 type OptionalPattern struct {
@@ -37,6 +38,11 @@ type OptionalPattern struct {
 // UnionPattern represents UNION { ... } { ... } alternatives
 type UnionPattern struct {
 	Alternatives [][]GraphPattern // Each alternative is a list of patterns
+}
+
+// FilterPattern represents a FILTER expression applied to the surrounding group pattern.
+type FilterPattern struct {
+	Expression string
 }
 
 // Aggregate represents an aggregate function like COUNT, SUM, etc.
@@ -64,9 +70,9 @@ type sparqlQueryImpl struct {
 	qtype      string
 	prefixes   map[string]string
 	projs      []string
-	patterns   []GraphPattern    // Extended to support all pattern types
-	bgps       []*BGP            // Deprecated: use patterns instead
-	aggregates []*Aggregate      // Aggregate functions
+	patterns   []GraphPattern    // New: supports OPTIONAL, UNION, and other pattern types
+	bgps       []*BGP            // Deprecated: only for backwards compatibility with old simple parser output
+	aggregates []*Aggregate      // Aggregate functions (COUNT, SUM, AVG, MIN, MAX)
 	binds      []*BindExpression // BIND expressions
 	having     *HavingClause     // HAVING clause
 	limit      int
@@ -77,14 +83,15 @@ type sparqlQueryImpl struct {
 	fromNamed  []string // available named graphs (FROM NAMED)
 }
 
-// SPARQLQueryImpl is an exported version for testing and examples
+// SPARQLQueryImpl is an exported version for testing and examples.
+// Prefer using patterns field for new code; bgps is maintained for backwards compatibility.
 type SPARQLQueryImpl struct {
 	Qtype      string
 	Prefixes   map[string]string
 	Projs      []string
-	Patterns   []GraphPattern    // Extended to support all pattern types
-	Bgps       []*BGP            // Deprecated: use patterns instead
-	Aggregates []*Aggregate      // Aggregate functions
+	Patterns   []GraphPattern    // New: supports OPTIONAL, UNION, and other pattern types
+	Bgps       []*BGP            // Deprecated: only for backwards compatibility with old simple parser output
+	Aggregates []*Aggregate      // Aggregate functions (COUNT, SUM, AVG, MIN, MAX)
 	Binds      []*BindExpression // BIND expressions
 	Having     *HavingClause     // HAVING clause
 	Limit      int

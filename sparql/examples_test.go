@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/nfeldman/dgraph/sparql"
+	"github.com/dgraph-io/dgraph/v25/sparql"
 )
 
 // Example_quadLoading demonstrates loading RDF quads with named graph support

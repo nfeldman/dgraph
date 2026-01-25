@@ -12,7 +12,7 @@ Implementation of OPTIONAL, UNION, aggregates, BIND, and HAVING.
 
 ## What Was Implemented
 
-### Phase 1: Named Graph Support
+### Phase 1 Details
 
 ### Core Components
 
@@ -115,7 +115,7 @@ For RDF quad: `<s> <p> <o> <g>`
 
 Store as:
 
-```
+```turtle
 <s> <p> <o> .
 <s> <graph> "g" .
 ```
@@ -265,11 +265,11 @@ Features demonstrated:
 - ✅ ORDER BY sorting
 - ✅ LIMIT/OFFSET pagination
 
-## Architecture Alignment
+## Architecture Alignment (Phase 1)
 
 This implementation follows the design documents:
 
-### Phase 1: Named Graph Support
+### Named Graph Support
 
 - ✅ Graph predicate emulation
 - ✅ FROM/FROM NAMED dataset specification

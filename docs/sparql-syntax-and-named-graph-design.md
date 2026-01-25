@@ -6,6 +6,28 @@ This document describes the architecture, translation rules, and data modeling a
 supporting SPARQL queries—including named graph constructs (`GRAPH`, `FROM`, `FROM NAMED`)—in Dgraph
 using ANTLR-generated parser and predicate emulation.
 
+## Current status (2026-01-25)
+
+- **Implemented:**
+  - ANTLR visitor builds `SPARQLQueryImpl` for `SELECT`/`ASK`, parsing prefixes, projections,
+    DISTINCT, FROM / FROM NAMED, GRAPH blocks, OPTIONAL, UNION, BIND, aggregates
+    (COUNT/SUM/MIN/MAX/AVG with DISTINCT), HAVING, ORDER BY, LIMIT/OFFSET, FILTER, and
+    graph-annotated BGPs.
+  - Quad loader emits graph membership triples and is covered by extensive tests.
+  - Translator supports graph filtering semantics, OPTIONAL/UNION, aggregates, BIND, HAVING,
+    DISTINCT, ORDER, LIMIT/OFFSET, and now maps FILTER comparisons/regex to structured DQL filters
+    (raw fallback only when explicitly allowed via options); examples and e2e tests are green.
+- **Shortcuts/deviations:**
+  - `antlr_adapter` still falls back to the legacy simple parser if ANTLR rejects input **or** if
+    the visitor yields no patterns; this bypasses the AST in those cases.
+  - FILTER translation covers comparisons/regex; complex expressions error in strict mode (default)
+    and only fall back to raw when `AllowFilterFallback` is enabled.
+  - HTTP integration stub (`http_integration.go`) remains unimplemented.
+- **Remaining stubs before wider usability:**
+  - Refine FILTER translation to structured DQL functions and expression mapping.
+  - Remove/replace the simple-parser fallback once visitor coverage is complete.
+  - Add support for CONSTRUCT/DESCRIBE and property paths as planned.
+
 ## Goals
 
 - Parse full SPARQL 1.1 queries, using an ANTLR4-generated Go parser (checked-in generated code).
@@ -17,10 +39,12 @@ using ANTLR-generated parser and predicate emulation.
 ## Data Model
 
 - Every RDF triple ingested from a quad includes an extra triple to define the graph/context:
-  ```
+
+  ```turtle
   <subject> <predicate> <object> .
   <subject> <graph> "graph-iri" .
   ```
+
 - The `graph` predicate indicates named graph membership.
 - Subjects may have multiple `<graph>` predicates if they reside in multiple named graphs.
 
@@ -98,20 +122,20 @@ WHERE {
 - [x] Unit and integration tests for representative SPARQL queries and DQL translations.
 - [x] Comprehensive test coverage for loader, translator, and utilities.
 
-### Phase 2: Documentation & Validation (IN PROGRESS)
+### Phase 2: Documentation & Validation (COMPLETED ✅, ongoing doc refresh)
 
 - [x] Document implementation details and core files.
 - [x] Document edge cases and limitations.
 - [x] Create TEST_COVERAGE.md with detailed test matrix (110+ test cases).
 - [x] Create IMPLEMENTATION.md with architecture and usage guide.
-- [ ] Keep documentation up-to-date with architecture and translator changes.
+- [ ] Continue refreshing docs as ANTLR visitor replaces simple-parser fallback and FILTER support
+      lands.
 
 ### Phase 3: Future Enhancements (PLANNED)
 
-- [ ] Full ANTLR visitor implementation for parsing SPARQL text.
+- [ ] Complete ANTLR visitor coverage (FILTER expressions, CONSTRUCT/DESCRIBE, property paths).
+- [ ] Reduce/remove legacy simple-parser fallback once visitor covers all patterns.
 - [ ] Variable graph patterns (GRAPH ?g) support.
-- [ ] Full OPTIONAL, UNION, FILTER support.
-- [ ] CONSTRUCT and DESCRIBE query types.
 - [ ] Performance optimizations and query planning.
 - [ ] Integration with actual Dgraph instance.
 
